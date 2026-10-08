@@ -1,0 +1,34 @@
+[package]
+name = "agregat"
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.85"
+description = "Thumbnail / compress aggregator API powered by Rumpeg"
+
+[dependencies]
+axum = { version = "0.8", features = ["multipart"] }
+tokio = { version = "1", features = ["full"] }
+futures-util = "0.3"
+tower-http = { version = "0.6", features = ["cors", "trace"] }
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+image = { version = "0.24", default-features = false, features = ["jpeg"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+tempfile = "3"
+zip = { version = "2", default-features = false, features = ["deflate"] }
+uuid = { version = "1", features = ["v4", "serde"] }
+chrono = { version = "0.4", features = ["serde"] }
+
+# 0.1.2: rusty_h264-encoder (ME/CABAC/ABR) by default; optional NVENC on Windows.
+rumpeg = { version = "0.1.2", features = ["encode-nvenc"] }
+imagehash = "0.3.0"
+
+# rumpeg-format: moov-only open. rumpeg-codec: parallel YUV→ARGB + faster NVENC preset.
+[patch.crates-io]
+rumpeg-format = { path = "vendor/rumpeg-format" }
+rumpeg-codec = { path = "vendor/rumpeg-codec" }
+
+[profile.release]
+lto = "thin"
+codegen-units = 1
