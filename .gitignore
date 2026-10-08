@@ -1,1 +1,10 @@
-/target
+# build artifacts
+/target/
+
+# test files
+test_*.jpg
+test_*.mp4
+nul
+
+# temp
+.repo.json
