@@ -21,6 +21,7 @@ use serde::Deserialize;
 use std::io::Write;
 use std::net::SocketAddr;
 use std::path::{Path, PathBuf};
+use std::sync::{Arc, Mutex};
 use std::time::Duration;
 use tempfile::{Builder, NamedTempFile};
 use tower_http::cors::CorsLayer;
@@ -197,6 +198,15 @@ impl CompressQuery {
 }
 
 // ── helpers ─────────────────────────────────────────────────────
+
+/// Compute Hamming distance between two `imagehash::Hash` values.
+fn hamming_distance(a: &imagehash::Hash, b: &imagehash::Hash) -> u64 {
+    a.bits
+        .iter()
+        .zip(b.bits.iter())
+        .filter(|(x, y)| x != y)
+        .count() as u64
+}
 
 fn error_response(status: StatusCode, message: &str) -> Response {
     (
@@ -483,11 +493,19 @@ async fn respond_thumbnail_async(
         })),
     };
 
-    let id = job::spawn_job(reg, JobType::Thumbnail, meta, move |cancelled| {
-        cancelled.store(false, std::sync::atomic::Ordering::SeqCst); // already checked at spawn
-        let _ = thumbnail::make_thumbnail_from_path(&in_path, &opts);
-        drop(file);
-    });
+    // Thumbnail work doesn't need a result payload beyond output_size,
+    // which we get from metadata of the input (the file still exists on disk).
+    let id = job::spawn_job(
+        reg,
+        JobType::Thumbnail,
+        meta,
+        move |cancelled| {
+            cancelled.store(false, std::sync::atomic::Ordering::SeqCst); // already checked at spawn
+            let _ = thumbnail::make_thumbnail_from_path(&in_path, &opts);
+            drop(file);
+        },
+        || None,
+    );
 
     Json(serde_json::json!({
         "ok": true,
@@ -524,10 +542,32 @@ async fn respond_hash_async(reg: JobRegistry, file: NamedTempFile) -> Response {
         extra: None,
     };
 
-    let id = job::spawn_job(reg, JobType::Hash, meta, move |_cancelled| {
-        let _ = image::open(&in_path);
-        drop(file);
-    });
+    // Compute result inside `work` since the temp file is moved/dropped.
+    let computed: Arc<Mutex<Option<String>>> = Arc::new(Mutex::new(None));
+    let cc = computed.clone();
+
+    // Clone in_path for the work closure.
+    let work_path = in_path.clone();
+
+    let id = job::spawn_job(
+        reg,
+        JobType::Hash,
+        meta,
+        move |_cancelled| {
+            if let Ok(img) = image::open(&work_path) {
+                let hash = imagehash::perceptual_hash(&img);
+                *cc.lock().unwrap() = Some(hash.to_string());
+            }
+            drop(file);
+        },
+        move || {
+            computed
+                .lock()
+                .ok()
+                .and_then(|g| g.as_ref().cloned())
+                .map(|phash| serde_json::json!({ "phash": phash }))
+        },
+    );
 
     Json(serde_json::json!({
         "ok": true,
@@ -562,21 +602,44 @@ async fn hash_compare_raw(
     let _ = tmp1.as_file_mut().write_all(&payload.image1);
     let _ = tmp2.as_file_mut().write_all(&payload.image2);
 
+    // Compute hashes inside `work` since temp files are moved/dropped.
+    let computed: Arc<Mutex<Option<String>>> = Arc::new(Mutex::new(None));
+    let computed1 = computed.clone();
+
     let file_name = Some("compare".to_string());
     let file_size = Some((payload.image1.len() + payload.image2.len()) as u64);
 
-    let meta = JobMeta {
+    let _meta = JobMeta {
         file_name,
         file_size,
         extra: None,
     };
 
-    let id = job::spawn_job(reg, JobType::HashCompare, meta, move |_cancelled| {
-        let _ = image::open(tmp1.path());
-        let _ = image::open(tmp2.path());
-        drop(tmp1);
-        drop(tmp2);
-    });
+    let id = job::spawn_job(
+        reg,
+        JobType::HashCompare,
+        _meta,
+        move |_cancelled| {
+            let h1 = image::open(tmp1.path())
+                .ok()
+                .map(|img| imagehash::perceptual_hash(&img));
+            let h2 = image::open(tmp2.path())
+                .ok()
+                .map(|img| imagehash::perceptual_hash(&img));
+            if let (Some(a), Some(b)) = (h1, h2) {
+                *computed1.lock().unwrap() = Some(hamming_distance(&a, &b).to_string());
+            }
+            drop(tmp1);
+            drop(tmp2);
+        },
+        move || {
+            computed
+                .lock()
+                .ok()
+                .and_then(|g| g.as_ref().cloned())
+                .map(|dist| serde_json::json!({ "distance": dist.parse::<u64>().unwrap_or(0) }))
+        },
+    );
 
     Json(serde_json::json!({
         "ok": true,
@@ -612,12 +675,35 @@ async fn respond_hash_compare_async(
         extra: None,
     };
 
-    let id = job::spawn_job(reg, JobType::HashCompare, meta, move |_cancelled| {
-        let _ = image::open(&path1);
-        let _ = image::open(&path2);
-        drop(file1);
-        drop(file2);
-    });
+    // Compute hashes inside `work` since temp files are moved/dropped.
+    let computed: Arc<Mutex<Option<String>>> = Arc::new(Mutex::new(None));
+    let c1 = computed.clone();
+
+    let id = job::spawn_job(
+        reg,
+        JobType::HashCompare,
+        meta,
+        move |_cancelled| {
+            let h1 = image::open(&path1)
+                .ok()
+                .map(|img| imagehash::perceptual_hash(&img));
+            let h2 = image::open(&path2)
+                .ok()
+                .map(|img| imagehash::perceptual_hash(&img));
+            if let (Some(a), Some(b)) = (h1, h2) {
+                *c1.lock().unwrap() = Some(hamming_distance(&a, &b).to_string());
+            }
+            drop(file1);
+            drop(file2);
+        },
+        move || {
+            computed
+                .lock()
+                .ok()
+                .and_then(|g| g.as_ref().cloned())
+                .map(|dist| serde_json::json!({ "distance": dist.parse::<u64>().unwrap_or(0) }))
+        },
+    );
 
     Json(serde_json::json!({
         "ok": true,
@@ -690,13 +776,28 @@ async fn respond_compress_async(
         })),
     };
 
-    let id = job::spawn_job(reg, JobType::Compress, meta, move |_cancelled| {
-        let result = compress::compress_video(&in_path, &out_path, &opts);
-        if let Err(e) = result {
-            tracing::warn!("compress failed: {e}");
-        }
-        drop(input);
-    });
+    // Clone `out_path` for `on_complete` — it's moved into `work`.
+    let out_result = out_path.clone();
+
+    let id = job::spawn_job(
+        reg,
+        JobType::Compress,
+        meta,
+        move |_cancelled| {
+            let result = compress::compress_video(&in_path, &out_path, &opts);
+            if let Err(e) = result {
+                tracing::warn!("compress failed: {e}");
+            }
+            drop(input);
+        },
+        move || {
+            if let Ok(meta) = std::fs::metadata(&out_result) {
+                Some(serde_json::json!({ "output_size": meta.len() }))
+            } else {
+                None
+            }
+        },
+    );
 
     Json(serde_json::json!({
         "ok": true,
@@ -743,13 +844,28 @@ async fn respond_messenger_dual_async(reg: JobRegistry, input: NamedTempFile) ->
         extra: Some(serde_json::json!({ "mode": "messenger_dual" })),
     };
 
-    let id = job::spawn_job(reg, JobType::Compress, meta, move |_cancelled| {
-        let result = compress::compress_messenger_dual(&in_path, &out_path);
-        if let Err(e) = result {
-            tracing::warn!("messenger compress failed: {e}");
-        }
-        drop(input);
-    });
+    // Clone `out_path` for `on_complete` — it's moved into `work`.
+    let out_result = out_path.clone();
+
+    let id = job::spawn_job(
+        reg,
+        JobType::Compress,
+        meta,
+        move |_cancelled| {
+            let result = compress::compress_messenger_dual(&in_path, &out_path);
+            if let Err(e) = result {
+                tracing::warn!("messenger compress failed: {e}");
+            }
+            drop(input);
+        },
+        move || {
+            if let Ok(meta) = std::fs::metadata(&out_result) {
+                Some(serde_json::json!({ "zip_size": meta.len() }))
+            } else {
+                None
+            }
+        },
+    );
 
     Json(serde_json::json!({
         "ok": true,

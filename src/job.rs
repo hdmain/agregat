@@ -99,6 +99,9 @@ pub struct JobInfo {
     pub elapsed_ms: Option<u64>,
     /// Result message on error, empty otherwise.
     pub error: Option<String>,
+    /// Arbitrary result payload set by the worker (e.g. hash string, compare distance).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub result: Option<serde_json::Value>,
 }
 
 // ── internal state ──────────────────────────────────────────────
@@ -127,6 +130,7 @@ impl JobState {
             finished_at: None,
             elapsed_ms: None,
             error: None,
+            result: None,
         };
         Self {
             inner: Arc::new(JobStateInner {
@@ -148,10 +152,21 @@ impl JobState {
     }
 
     fn set_done(&self, status: JobStatus, elapsed_ms: u64, error: Option<String>) {
+        self.set_done_with_result(status, elapsed_ms, error, None);
+    }
+
+    fn set_done_with_result(
+        &self,
+        status: JobStatus,
+        elapsed_ms: u64,
+        error: Option<String>,
+        result: Option<serde_json::Value>,
+    ) {
         let mut info = self.inner.info.lock().unwrap();
         info.status = status;
         info.elapsed_ms = Some(elapsed_ms);
         info.error = error;
+        info.result = result;
         info.finished_at = Some(chrono::Utc::now());
     }
 
@@ -300,6 +315,7 @@ pub async fn handle_list_jobs(
                 "finished_at": j.finished_at.map(|t| t.to_rfc3339()),
                 "elapsed_ms": j.elapsed_ms,
                 "error": j.error,
+                "result": j.result,
             })
         })
         .collect();
@@ -335,6 +351,7 @@ pub async fn handle_get_job(
                         "finished_at": info.finished_at.map(|t| t.to_rfc3339()),
                         "elapsed_ms": info.elapsed_ms,
                         "error": info.error,
+                        "result": info.result,
                     }
                 })),
             )
@@ -415,6 +432,7 @@ pub async fn handle_list_active_jobs(
                 "started_at": j.started_at.map(|t| t.to_rfc3339()),
                 "elapsed_ms": j.elapsed_ms,
                 "error": j.error,
+                "result": j.result,
             })
         })
         .collect();
@@ -434,9 +452,19 @@ pub async fn handle_list_active_jobs(
 /// `work` is called on Tokio's blocking thread pool (`spawn_blocking`).
 /// It receives an `Arc<AtomicBool>` that the worker should check periodically
 /// to respect cancellation requests.
-pub fn spawn_job<F>(registry: JobRegistry, job_type: JobType, meta: JobMeta, work: F) -> String
+///
+/// `on_complete` is called after work finishes (success or failure) and can
+/// store an arbitrary result in the job metadata.
+pub fn spawn_job<F, G>(
+    registry: JobRegistry,
+    job_type: JobType,
+    meta: JobMeta,
+    work: F,
+    on_complete: G,
+) -> String
 where
     F: FnOnce(std::sync::Arc<AtomicBool>) + Send + 'static,
+    G: FnOnce() -> Option<serde_json::Value> + Send + 'static,
 {
     let id = Uuid::new_v4().to_string();
     let state = JobState::new(id.clone(), job_type, meta);
@@ -473,7 +501,12 @@ where
             None
         };
 
-        state.set_done(done_status, elapsed, error);
+        let result_data = match done_status {
+            JobStatus::Completed => on_complete(),
+            _ => None,
+        };
+
+        state.set_done_with_result(done_status, elapsed, error, result_data);
     });
 
     id
