@@ -19,16 +19,21 @@ tempfile = "3"
 zip = { version = "2", default-features = false, features = ["deflate"] }
 uuid = { version = "1", features = ["v4", "serde"] }
 chrono = { version = "0.4", features = ["serde"] }
+crossbeam = "0.8"
+num_cpus = "1"
 
 # 0.1.2: rusty_h264-encoder (ME/CABAC/ABR) by default; optional NVENC on Windows.
 rumpeg = { version = "0.1.2", features = ["encode-nvenc"] }
 imagehash = "0.3.0"
 
-# rumpeg-format: moov-only open. rumpeg-codec: parallel YUV→ARGB + faster NVENC preset.
+[profile.release]
+opt-level = 3
+lto = "fat"
+codegen-units = 1
+panic = "abort"
+strip = true
+
 [patch.crates-io]
 rumpeg-format = { path = "vendor/rumpeg-format" }
 rumpeg-codec = { path = "vendor/rumpeg-codec" }
 
-[profile.release]
-lto = "thin"
-codegen-units = 1

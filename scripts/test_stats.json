@@ -1,0 +1,153 @@
+﻿{
+    "input_file":  "scripts\\IMG_2063.MP4",
+    "input_mb":  9.124,
+    "captured_at":  "2026-10-15T20:22:59.0125113+02:00",
+    "rows":  [
+                 {
+                     "name":  "ffmpeg_lossy_low",
+                     "status":  "completed",
+                     "elapsed_ms":  849,
+                     "wall_ms":  1084,
+                     "error":  null,
+                     "result":  {
+                                    "download":  "/ffmpeg/ff_2c1bfa30-fc91-4381-9e6d-5257fd5bee52.mp4",
+                                    "output_path":  "ff_2c1bfa30-fc91-4381-9e6d-5257fd5bee52.mp4",
+                                    "output_size":  2409702
+                                },
+                     "out_size":  2409702,
+                     "download":  "/ffmpeg/ff_2c1bfa30-fc91-4381-9e6d-5257fd5bee52.mp4"
+                 },
+                 {
+                     "name":  "ffmpeg_lossy_normal",
+                     "status":  "completed",
+                     "elapsed_ms":  1069,
+                     "wall_ms":  1296,
+                     "error":  null,
+                     "result":  {
+                                    "download":  "/ffmpeg/ff_b0a39087-69ba-403d-a791-33165b5b1c2d.mp4",
+                                    "output_path":  "ff_b0a39087-69ba-403d-a791-33165b5b1c2d.mp4",
+                                    "output_size":  7624777
+                                },
+                     "out_size":  7624777,
+                     "download":  "/ffmpeg/ff_b0a39087-69ba-403d-a791-33165b5b1c2d.mp4"
+                 },
+                 {
+                     "name":  "ffmpeg_lossless",
+                     "status":  "completed",
+                     "elapsed_ms":  1110,
+                     "wall_ms":  1337,
+                     "error":  null,
+                     "result":  {
+                                    "download":  "/ffmpeg/ff_860e1439-b2da-4f32-8108-f31bfb57afae.mp4",
+                                    "output_path":  "ff_860e1439-b2da-4f32-8108-f31bfb57afae.mp4",
+                                    "output_size":  123952033
+                                },
+                     "out_size":  123952033,
+                     "download":  "/ffmpeg/ff_860e1439-b2da-4f32-8108-f31bfb57afae.mp4"
+                 },
+                 {
+                     "name":  "ffmpeg_qualities",
+                     "status":  "completed",
+                     "elapsed_ms":  1117,
+                     "wall_ms":  1316,
+                     "error":  null,
+                     "result":  {
+                                    "download":  "/ffmpeg/ff_qualities_b9be76d2-e5b6-41f2-ad69-5a8131d4378b.zip",
+                                    "output_path":  "ff_qualities_b9be76d2-e5b6-41f2-ad69-5a8131d4378b.zip",
+                                    "zip_size":  10034691
+                                },
+                     "out_size":  10034691,
+                     "download":  "/ffmpeg/ff_qualities_b9be76d2-e5b6-41f2-ad69-5a8131d4378b.zip"
+                 },
+                 {
+                     "name":  "ffmpeg_qualities_plus_ll",
+                     "status":  "completed",
+                     "elapsed_ms":  2223,
+                     "wall_ms":  2329,
+                     "error":  null,
+                     "result":  {
+                                    "download":  "/ffmpeg/ff_qualities_abdd6632-589b-47f5-8ade-15aa41ec6d1d.zip",
+                                    "output_path":  "ff_qualities_abdd6632-589b-47f5-8ade-15aa41ec6d1d.zip",
+                                    "zip_size":  133986824
+                                },
+                     "out_size":  133986824,
+                     "download":  "/ffmpeg/ff_qualities_abdd6632-589b-47f5-8ade-15aa41ec6d1d.zip"
+                 },
+                 {
+                     "name":  "ffmpeg_strip_exif",
+                     "status":  "completed",
+                     "elapsed_ms":  79,
+                     "wall_ms":  258,
+                     "error":  null,
+                     "result":  {
+                                    "download":  "/ffmpeg/ff_strip_7c041117-4293-48bf-ac38-0a9d983a612f.mp4",
+                                    "output_path":  "ff_strip_7c041117-4293-48bf-ac38-0a9d983a612f.mp4",
+                                    "output_size":  9591446
+                                },
+                     "out_size":  9591446,
+                     "download":  "/ffmpeg/ff_strip_7c041117-4293-48bf-ac38-0a9d983a612f.mp4"
+                 },
+                 {
+                     "name":  "rumpeg_compress_low",
+                     "status":  "completed",
+                     "elapsed_ms":  5525,
+                     "wall_ms":  5693,
+                     "error":  null,
+                     "result":  {
+                                    "output_size":  2049463
+                                },
+                     "out_size":  2049463,
+                     "download":  null
+                 },
+                 {
+                     "name":  "rumpeg_compress_normal",
+                     "status":  "completed",
+                     "elapsed_ms":  5825,
+                     "wall_ms":  5962,
+                     "error":  null,
+                     "result":  {
+                                    "output_size":  7059174
+                                },
+                     "out_size":  7059174,
+                     "download":  null
+                 },
+                 {
+                     "name":  "rumpeg_messenger",
+                     "status":  "completed",
+                     "elapsed_ms":  5984,
+                     "wall_ms":  5998,
+                     "error":  null,
+                     "result":  {
+                                    "zip_size":  9108845
+                                },
+                     "out_size":  9108845,
+                     "download":  null
+                 },
+                 {
+                     "name":  "thumbnail_video",
+                     "status":  "completed",
+                     "elapsed_ms":  18,
+                     "wall_ms":  260,
+                     "error":  null,
+                     "result":  {
+                                    "output_path":  "thumb_512a376c-308a-4b17-bd63-add9e077ca75.jpg",
+                                    "output_size":  4748
+                                },
+                     "out_size":  4748,
+                     "download":  "thumb_512a376c-308a-4b17-bd63-add9e077ca75.jpg"
+                 },
+                 {
+                     "name":  "hash_image",
+                     "status":  "completed",
+                     "elapsed_ms":  4,
+                     "wall_ms":  253,
+                     "error":  null,
+                     "result":  {
+                                    "phash":  "b6a0ab87afaabc8f"
+                                },
+                     "out_size":  null,
+                     "download":  "b6a0ab87afaabc8f"
+                 }
+             ],
+    "input_bytes":  9566963
+}

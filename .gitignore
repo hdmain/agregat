@@ -1,10 +1,19 @@
 # build artifacts
 /target/
 
-# test files
+# test / local media
 test_*.jpg
 test_*.mp4
+/output/
+/scripts/output/
+/scripts/*.MP4
+/scripts/*.mp4
+/scripts/*.avi
+/scripts/*.jpg
 nul
+
+# editor
+.zed/
 
 # temp
 .repo.json

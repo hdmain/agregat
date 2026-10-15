@@ -8,13 +8,14 @@
 //! * `GET /jobs/:id`            — inspect one job
 //! * `POST /jobs/:id/cancel`    — cancel a running or queued job
 
+use crate::AppState;
 use axum::extract::{Path, Query, State};
 use axum::http::StatusCode;
 use axum::response::IntoResponse;
 use axum::Json;
 use serde::{Deserialize, Serialize};
 use std::fmt;
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 use std::time::Instant;
@@ -107,13 +108,15 @@ pub struct JobInfo {
 // ── internal state ──────────────────────────────────────────────
 
 /// Per-job state protected by its own mutex.
+#[derive(Debug)]
 struct JobStateInner {
     info: Mutex<JobInfo>,
-    cancelled: AtomicBool,
+    /// Shared with the worker closure so `/jobs/:id/cancel` actually stops work.
+    cancelled: Arc<AtomicBool>,
 }
 
 /// Shared handle to a single job (cheap to clone — only an Arc).
-#[derive(Clone)]
+#[derive(Debug, Clone)]
 pub(crate) struct JobState {
     inner: Arc<JobStateInner>,
 }
@@ -135,7 +138,7 @@ impl JobState {
         Self {
             inner: Arc::new(JobStateInner {
                 info: Mutex::new(info),
-                cancelled: AtomicBool::new(false),
+                cancelled: Arc::new(AtomicBool::new(false)),
             }),
         }
     }
@@ -151,8 +154,8 @@ impl JobState {
         self.inner.cancelled.load(Ordering::SeqCst)
     }
 
-    fn set_done(&self, status: JobStatus, elapsed_ms: u64, error: Option<String>) {
-        self.set_done_with_result(status, elapsed_ms, error, None);
+    fn cancelled_flag(&self) -> Arc<AtomicBool> {
+        self.inner.cancelled.clone()
     }
 
     fn set_done_with_result(
@@ -176,8 +179,8 @@ impl JobState {
 }
 
 /// Shared job registry — the only source of truth.
-#[derive(Clone)]
-pub struct JobRegistry(pub Arc<Mutex<Vec<JobState>>>);
+#[derive(Clone, Debug)]
+pub struct JobRegistry(Arc<Mutex<Vec<JobState>>>);
 
 const DEFAULT_LIST_LIMIT: usize = 50;
 
@@ -186,7 +189,7 @@ impl JobRegistry {
         Self(Arc::new(Mutex::new(Vec::new())))
     }
 
-    pub fn insert(&self, state: JobState) {
+    pub(crate) fn insert(&self, state: JobState) {
         self.0.lock().unwrap().push(state);
     }
 
@@ -203,7 +206,7 @@ impl JobRegistry {
         filtered.into_iter().skip(start).collect()
     }
 
-    pub fn get(&self, id: &str) -> Option<JobState> {
+    pub(crate) fn get(&self, id: &str) -> Option<JobState> {
         self.0
             .lock()
             .unwrap()
@@ -294,11 +297,11 @@ impl JobStatusFilter {
 // ── API handlers ────────────────────────────────────────────────
 
 pub async fn handle_list_jobs(
-    State(reg): State<JobRegistry>,
+    State(s): State<AppState>,
     Query(q): Query<JobListQuery>,
 ) -> impl IntoResponse {
     let status = q.status.as_deref().and_then(JobStatusFilter::parse);
-    let jobs = reg.list(status, q.limit);
+    let jobs = s.registry.list(status, q.limit);
 
     let items: Vec<serde_json::Value> = jobs
         .into_iter()
@@ -329,10 +332,10 @@ pub async fn handle_list_jobs(
 }
 
 pub async fn handle_get_job(
-    State(reg): State<JobRegistry>,
+    State(s): State<AppState>,
     Path(id): Path<String>,
 ) -> impl IntoResponse {
-    match reg.get(&id) {
+    match s.registry.get(&id) {
         Some(state) => {
             let info = state.snapshot();
             (
@@ -367,10 +370,10 @@ pub async fn handle_get_job(
 }
 
 pub async fn handle_cancel_job(
-    State(reg): State<JobRegistry>,
+    State(s): State<AppState>,
     Path(id): Path<String>,
 ) -> impl IntoResponse {
-    match reg.get(&id) {
+    match s.registry.get(&id) {
         Some(state) => {
             if state.is_cancelled() {
                 return (
@@ -413,10 +416,10 @@ pub async fn handle_cancel_job(
 
 /// `GET /jobs/active` — list currently running jobs.
 pub async fn handle_list_active_jobs(
-    State(reg): State<JobRegistry>,
+    State(s): State<AppState>,
     Query(q): Query<JobListQuery>,
 ) -> impl IntoResponse {
-    let jobs = reg.list(Some(JobStatusFilter::Running), q.limit);
+    let jobs = s.registry.list(Some(JobStatusFilter::Running), q.limit);
 
     let items: Vec<serde_json::Value> = jobs
         .into_iter()
@@ -447,14 +450,19 @@ pub async fn handle_list_active_jobs(
 
 // ── job dispatcher ──────────────────────────────────────────────
 
-/// Spawn a background job and register it. Returns the job ID immediately.
+/// Global worker pool — spawns one raw OS thread per job so we can process
+/// thousands of files concurrently without queuing.
+static WORKER_COUNT: AtomicUsize = AtomicUsize::new(0);
+
+pub fn init_worker_pool(count: usize) {
+    WORKER_COUNT.store(count, Ordering::SeqCst);
+}
+
+/// Spawn a background job on a raw OS thread. Returns the job ID immediately.
+/// Each call spawns a new detached thread — no queueing, instant parallelism.
 ///
-/// `work` is called on Tokio's blocking thread pool (`spawn_blocking`).
-/// It receives an `Arc<AtomicBool>` that the worker should check periodically
-/// to respect cancellation requests.
-///
-/// `on_complete` is called after work finishes (success or failure) and can
-/// store an arbitrary result in the job metadata.
+/// `work` should return `Err` on failure so the job is marked `failed`.
+/// The `cancelled` flag is the same atomic used by `POST /jobs/:id/cancel`.
 pub fn spawn_job<F, G>(
     registry: JobRegistry,
     job_type: JobType,
@@ -463,42 +471,37 @@ pub fn spawn_job<F, G>(
     on_complete: G,
 ) -> String
 where
-    F: FnOnce(std::sync::Arc<AtomicBool>) + Send + 'static,
+    F: FnOnce(Arc<AtomicBool>) -> Result<(), String> + Send + 'static,
     G: FnOnce() -> Option<serde_json::Value> + Send + 'static,
 {
     let id = Uuid::new_v4().to_string();
     let state = JobState::new(id.clone(), job_type, meta);
     registry.insert(state.clone());
 
-    let cancelled = std::sync::Arc::new(AtomicBool::new(false));
+    let cancelled = state.cancelled_flag();
 
-    tokio::task::spawn_blocking(move || {
+    std::thread::spawn(move || {
         let start = Instant::now();
 
-        let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-            // Check cancellation before starting.
+        let work_result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
             if cancelled.load(Ordering::SeqCst) {
-                return;
+                return Err("cancelled by user".to_string());
             }
-            work(cancelled.clone());
+            work(cancelled.clone())
         }));
 
         let elapsed = start.elapsed().as_millis() as u64;
 
-        let done_status = if cancelled.load(Ordering::SeqCst) {
-            JobStatus::Cancelled
-        } else if result.is_err() {
-            JobStatus::Failed
-        } else {
-            JobStatus::Completed
-        };
-
-        let error = if result.is_err() {
-            Some("worker panicked".to_string())
-        } else if done_status == JobStatus::Cancelled {
-            Some("cancelled by user".to_string())
-        } else {
-            None
+        let (done_status, error) = match work_result {
+            Ok(Ok(())) if cancelled.load(Ordering::SeqCst) => {
+                (JobStatus::Cancelled, Some("cancelled by user".to_string()))
+            }
+            Ok(Ok(())) => (JobStatus::Completed, None),
+            Ok(Err(_)) if cancelled.load(Ordering::SeqCst) => {
+                (JobStatus::Cancelled, Some("cancelled by user".to_string()))
+            }
+            Ok(Err(e)) => (JobStatus::Failed, Some(e)),
+            Err(_) => (JobStatus::Failed, Some("worker panicked".to_string())),
         };
 
         let result_data = match done_status {
