@@ -29,8 +29,11 @@ pub const DEFAULT_GOP: u32 = 60;
 pub const FAST_MAX_WIDTH: u32 = 640;
 /// Default encode preset for rusty_h264 / NVENC hints.
 pub const DEFAULT_PRESET: &str = "fast";
-/// Prefer NVENC when available (falls back inside rumpeg if unavailable).
+/// Prefer NVENC on Windows; pure-Rust H.264 elsewhere (Docker/Linux).
+#[cfg(windows)]
 pub const DEFAULT_ENCODER: &str = "h264_nvenc";
+#[cfg(not(windows))]
+pub const DEFAULT_ENCODER: &str = "h264";
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Profile {

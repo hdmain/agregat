@@ -2,7 +2,7 @@
 name = "agregat"
 version = "0.1.0"
 edition = "2021"
-rust-version = "1.85"
+rust-version = "1.89"
 description = "Thumbnail / compress aggregator API powered by Rumpeg"
 
 [dependencies]
@@ -22,9 +22,14 @@ chrono = { version = "0.4", features = ["serde"] }
 crossbeam = "0.8"
 num_cpus = "1"
 
-# 0.1.2: rusty_h264-encoder (ME/CABAC/ABR) by default; optional NVENC on Windows.
-rumpeg = { version = "0.1.2", features = ["encode-nvenc"] }
+# 0.1.2: rusty_h264 by default. NVENC is Windows-only (enabled below).
 imagehash = "0.3.0"
+
+[target.'cfg(windows)'.dependencies]
+rumpeg = { version = "0.1.2", features = ["encode-nvenc"] }
+
+[target.'cfg(not(windows))'.dependencies]
+rumpeg = { version = "0.1.2" }
 
 [profile.release]
 opt-level = 3

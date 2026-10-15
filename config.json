@@ -4,7 +4,7 @@
   "thumb_dir": "output",
   "workers_multiplier": 2,
   "prune_secs": 3600,
-  "ffmpeg_path": "C:\\Users\\makss\\.scopeast\\ffmpeg.exe",
+  "ffmpeg_path": "",
   "thumbnail": {
     "width": 256,
     "jpeg_quality": 12

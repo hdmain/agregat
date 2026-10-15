@@ -1,0 +1,25 @@
+services:
+  agregat:
+    image: venon4/agregat:latest
+    build:
+      context: .
+      dockerfile: Dockerfile
+    ports:
+      - "7528:7528"
+    environment:
+      RUST_LOG: info
+      FFMPEG_PATH: /usr/local/bin/ffmpeg
+      # Use "cuda" + deploy.resources when running with NVIDIA Container Toolkit
+      FFMPEG_HWACCEL: none
+    volumes:
+      - agregat-output:/app/output
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://127.0.0.1:7528/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 15s
+
+volumes:
+  agregat-output:

@@ -275,7 +275,9 @@ impl FfmpegQuery {
             fps: self.fps,
             crf: self.crf,
             preset: self.preset,
-            hwaccel: self.hwaccel.unwrap_or_else(|| "auto".into()),
+            hwaccel: self
+                .hwaccel
+                .unwrap_or_else(ffmpeg::default_hwaccel),
             include_lossless: self.include_lossless.unwrap_or(false),
         }
     }

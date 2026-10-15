@@ -1,0 +1,15 @@
+{
+  "port": 7528,
+  "max_upload_bytes": 2147483648,
+  "thumb_dir": "/app/output",
+  "workers_multiplier": 2,
+  "prune_secs": 3600,
+  "ffmpeg_path": "/usr/local/bin/ffmpeg",
+  "thumbnail": {
+    "width": 256,
+    "jpeg_quality": 12
+  },
+  "hash": {
+    "video_frame_size": 64
+  }
+}

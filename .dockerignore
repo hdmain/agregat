@@ -1,0 +1,15 @@
+target/
+.git/
+.zed/
+output/
+scripts/*.MP4
+scripts/*.mp4
+scripts/*.avi
+scripts/*.jpg
+scripts/output/
+**/*.pdb
+nul
+*.md
+LICENSE*
+agent-transcripts/
+canvases/

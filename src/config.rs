@@ -112,7 +112,8 @@ fn load_config_from_file(path: &Path) -> Option<Config> {
 }
 
 pub fn load_config() -> Config {
-    let mut cfg = load_config_from_file(Path::new("config.json")).unwrap_or_default();
+    let config_path = std::env::var("AGREGAT_CONFIG").unwrap_or_else(|_| "config.json".into());
+    let mut cfg = load_config_from_file(Path::new(&config_path)).unwrap_or_default();
 
     // CLI args override file config
     let args: Vec<String> = std::env::args().collect();

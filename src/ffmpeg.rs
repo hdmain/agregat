@@ -14,32 +14,49 @@ static DETECTED_FFMPEG: OnceLock<Option<PathBuf>> = OnceLock::new();
 
 /// Prefer configured path, then env, then known local installs, then PATH.
 pub fn resolve_ffmpeg(configured: Option<&str>) -> Option<PathBuf> {
-    if let Some(p) = configured {
+    if let Some(p) = configured.filter(|s| !s.is_empty()) {
         let path = PathBuf::from(p);
         if path.is_file() {
             return Some(path);
         }
     }
     if let Ok(p) = std::env::var("FFMPEG_PATH") {
-        let path = PathBuf::from(p);
-        if path.is_file() {
-            return Some(path);
+        if !p.is_empty() {
+            let path = PathBuf::from(&p);
+            if path.is_file() {
+                return Some(path);
+            }
+            if which_ffmpeg(&p).is_some() {
+                return Some(PathBuf::from(p));
+            }
         }
     }
     DETECTED_FFMPEG
         .get_or_init(|| {
-            let candidates = [
-                r"C:\Users\makss\.scopeast\ffmpeg.exe",
-                r"C:\ffmpeg\bin\ffmpeg.exe",
-                "ffmpeg.exe",
-                "ffmpeg",
-            ];
+            let mut candidates: Vec<&str> = Vec::new();
+            #[cfg(windows)]
+            {
+                candidates.extend([
+                    r"C:\Users\makss\.scopeast\ffmpeg.exe",
+                    r"C:\ffmpeg\bin\ffmpeg.exe",
+                    "ffmpeg.exe",
+                ]);
+            }
+            #[cfg(not(windows))]
+            {
+                candidates.extend([
+                    "/usr/bin/ffmpeg",
+                    "/usr/local/bin/ffmpeg",
+                    "/bin/ffmpeg",
+                ]);
+            }
+            candidates.push("ffmpeg");
+
             for c in candidates {
                 let path = PathBuf::from(c);
                 if path.is_file() {
                     return Some(path);
                 }
-                // PATH lookup
                 if which_ffmpeg(c).is_some() {
                     return Some(PathBuf::from(c));
                 }
@@ -47,6 +64,40 @@ pub fn resolve_ffmpeg(configured: Option<&str>) -> Option<PathBuf> {
             None
         })
         .clone()
+}
+
+/// Default hwaccel: env `FFMPEG_HWACCEL`, else CUDA when an NVIDIA device is present.
+pub fn default_hwaccel() -> String {
+    if let Ok(v) = std::env::var("FFMPEG_HWACCEL") {
+        if !v.is_empty() {
+            return v;
+        }
+    }
+    if nvidia_available() {
+        "cuda".into()
+    } else {
+        "none".into()
+    }
+}
+
+fn nvidia_available() -> bool {
+    #[cfg(not(windows))]
+    {
+        if Path::new("/dev/nvidia0").exists() {
+            return true;
+        }
+    }
+    let mut cmd = Command::new("nvidia-smi");
+    cmd.arg("-L")
+        .stdout(Stdio::null())
+        .stderr(Stdio::null());
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt;
+        const CREATE_NO_WINDOW: u32 = 0x08000000;
+        cmd.creation_flags(CREATE_NO_WINDOW);
+    }
+    cmd.status().map(|s| s.success()).unwrap_or(false)
 }
 
 fn which_ffmpeg(name: &str) -> Option<()> {
@@ -134,7 +185,7 @@ impl Default for FfmpegOptions {
             fps: None,
             crf: None,
             preset: None,
-            hwaccel: "auto".into(),
+            hwaccel: default_hwaccel(),
             include_lossless: false,
         }
     }
@@ -228,8 +279,21 @@ fn hwaccel_args(hwaccel: &str) -> Vec<String> {
     match hwaccel.to_ascii_lowercase().as_str() {
         "none" | "off" | "cpu" => Vec::new(),
         "cuda" => vec!["-hwaccel".into(), "cuda".into()],
-        // auto: try CUDA decode; encode path still falls back inside encoder choice
-        _ => vec!["-hwaccel".into(), "cuda".into()],
+        // auto: CUDA only when an NVIDIA device is visible (safe for Docker/CPU)
+        "auto" => {
+            if nvidia_available() {
+                vec!["-hwaccel".into(), "cuda".into()]
+            } else {
+                Vec::new()
+            }
+        }
+        _ => {
+            if nvidia_available() {
+                vec!["-hwaccel".into(), "cuda".into()]
+            } else {
+                Vec::new()
+            }
+        }
     }
 }
 
@@ -298,12 +362,24 @@ pub fn compress_one(
     }
 }
 
+fn prefer_nvenc(opts: &FfmpegOptions) -> bool {
+    let hw = opts.hwaccel.to_ascii_lowercase();
+    if matches!(hw.as_str(), "none" | "off" | "cpu") {
+        return false;
+    }
+    nvidia_available()
+}
+
 fn compress_lossy(
     ffmpeg: &Path,
     input: &Path,
     output: &Path,
     opts: &FfmpegOptions,
 ) -> Result<(), String> {
+    if !prefer_nvenc(opts) {
+        return compress_lossy_x264(ffmpeg, input, output, opts);
+    }
+
     let mut args = Vec::new();
     args.push("-y".into());
     args.push("-hide_banner".into());
@@ -319,7 +395,6 @@ fn compress_lossy(
         args.push(vf);
     }
 
-    // Prefer NVENC; fall back handled by caller retry if needed.
     let preset = opts.preset.as_deref().unwrap_or("p1");
     args.extend([
         "-c:v".into(),
@@ -339,7 +414,6 @@ fn compress_lossy(
         args.push("-bufsize".into());
         args.push(double_rate(br));
     } else if let Some(crf) = opts.crf {
-        // NVENC uses -cq
         args.push("-cq".into());
         args.push(crf.clamp(0, 51).to_string());
     }
@@ -427,7 +501,34 @@ fn compress_lossless(
         args.push(vf);
     }
 
-    // Try NVENC lossless first, then x264 CRF 0.
+    let encode_x264 = |base: Vec<String>| -> Result<(), String> {
+        let mut xargs = base;
+        xargs.extend([
+            "-c:v".into(),
+            "libx264".into(),
+            "-preset".into(),
+            "ultrafast".into(),
+            "-crf".into(),
+            "0".into(),
+            "-pix_fmt".into(),
+            "yuv420p".into(),
+        ]);
+        xargs.extend(audio_encode_args(
+            opts.audio_bitrate.as_deref().unwrap_or("192k"),
+        ));
+        xargs.extend([
+            "-movflags".into(),
+            "+faststart".into(),
+            output.display().to_string(),
+        ]);
+        run_ffmpeg(ffmpeg, &xargs)?;
+        ensure_output(output)
+    };
+
+    if !prefer_nvenc(opts) {
+        return encode_x264(args);
+    }
+
     let mut nvenc_args = args.clone();
     nvenc_args.extend([
         "-c:v".into(),
@@ -452,27 +553,7 @@ fn compress_lossless(
         Ok(()) => ensure_output(output),
         Err(e) => {
             tracing::warn!(error = %e, "NVENC lossless failed, falling back to libx264 CRF 0");
-            let mut xargs = args;
-            xargs.extend([
-                "-c:v".into(),
-                "libx264".into(),
-                "-preset".into(),
-                "ultrafast".into(),
-                "-crf".into(),
-                "0".into(),
-                "-pix_fmt".into(),
-                "yuv420p".into(),
-            ]);
-            xargs.extend(audio_encode_args(
-                opts.audio_bitrate.as_deref().unwrap_or("192k"),
-            ));
-            xargs.extend([
-                "-movflags".into(),
-                "+faststart".into(),
-                output.display().to_string(),
-            ]);
-            run_ffmpeg(ffmpeg, &xargs)?;
-            ensure_output(output)
+            encode_x264(args)
         }
     }
 }
@@ -571,6 +652,13 @@ fn compress_dual_lossy(
 [v0]scale='min(854,iw)':-2,fps=24[n];\
 [v1]scale='min(480,iw)':-2,fps=12[l]";
 
+    let use_nvenc = prefer_nvenc(opts);
+    let (vcodec, preset_n, tune_n, preset_l, tune_l) = if use_nvenc {
+        ("h264_nvenc", "p1", Some("ull"), "p1", Some("ull"))
+    } else {
+        ("libx264", "veryfast", None, "veryfast", None)
+    };
+
     let mut args = Vec::new();
     args.push("-y".into());
     args.push("-hide_banner".into());
@@ -583,24 +671,28 @@ fn compress_dual_lossy(
     args.push(filter.into());
     args.extend(strip_metadata_args(opts.strip_exif));
 
-    // Output 1: normal — options apply until the next output filename.
     args.extend([
         "-map".into(),
         "[n]".into(),
         "-map".into(),
         "0:a?".into(),
         "-c:v".into(),
-        "h264_nvenc".into(),
+        vcodec.into(),
         "-preset".into(),
-        "p1".into(),
-        "-tune".into(),
-        "ull".into(),
+        preset_n.into(),
+    ]);
+    if let Some(t) = tune_n {
+        args.extend(["-tune".into(), t.into()]);
+    }
+    args.extend([
         "-b:v".into(),
         "1200k".into(),
         "-maxrate".into(),
         "1200k".into(),
         "-bufsize".into(),
         "2400k".into(),
+        "-pix_fmt".into(),
+        "yuv420p".into(),
         "-c:a".into(),
         "aac".into(),
         "-b:a".into(),
@@ -612,24 +704,28 @@ fn compress_dual_lossy(
         normal_out.display().to_string(),
     ]);
 
-    // Output 2: low
     args.extend([
         "-map".into(),
         "[l]".into(),
         "-map".into(),
         "0:a?".into(),
         "-c:v".into(),
-        "h264_nvenc".into(),
+        vcodec.into(),
         "-preset".into(),
-        "p1".into(),
-        "-tune".into(),
-        "ull".into(),
+        preset_l.into(),
+    ]);
+    if let Some(t) = tune_l {
+        args.extend(["-tune".into(), t.into()]);
+    }
+    args.extend([
         "-b:v".into(),
         "350k".into(),
         "-maxrate".into(),
         "350k".into(),
         "-bufsize".into(),
         "700k".into(),
+        "-pix_fmt".into(),
+        "yuv420p".into(),
         "-c:a".into(),
         "aac".into(),
         "-b:a".into(),
@@ -650,7 +746,7 @@ fn compress_dual_lossy(
         Err(e) => {
             tracing::warn!(
                 error = %e,
-                "dual NVENC failed, encoding qualities sequentially with fallback"
+                "dual encode failed, encoding qualities sequentially"
             );
             let mut normal_opts = opts.clone();
             normal_opts.mode = CompressMode::Lossy;
