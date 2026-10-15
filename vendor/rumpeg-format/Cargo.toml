@@ -13,7 +13,7 @@
 edition = "2021"
 rust-version = "1.85"
 name = "rumpeg-format"
-version = "0.1.2"
+version = "0.1.4"
 authors = ["Rumpeg Contributors"]
 build = false
 autolib = false
@@ -47,7 +47,7 @@ version = "0.8"
 version = "0.1.2"
 
 [dependencies.rumpeg-util]
-version = "0.1.2"
+version = "0.1.4"
 
 [dependencies.thiserror]
 version = "2"

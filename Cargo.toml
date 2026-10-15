@@ -22,14 +22,14 @@ chrono = { version = "0.4", features = ["serde"] }
 crossbeam = "0.8"
 num_cpus = "1"
 
-# 0.1.2: rusty_h264 by default. NVENC is Windows-only (enabled below).
+# 0.1.4: HEVC (hvc1/hev1) demux + decode. NVENC is Windows-only (enabled below).
 imagehash = "0.3.0"
 
 [target.'cfg(windows)'.dependencies]
-rumpeg = { version = "0.1.2", features = ["encode-nvenc"] }
+rumpeg = { version = "0.1.4", features = ["encode-nvenc"] }
 
 [target.'cfg(not(windows))'.dependencies]
-rumpeg = { version = "0.1.2" }
+rumpeg = { version = "0.1.4" }
 
 [profile.release]
 opt-level = 3

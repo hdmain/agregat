@@ -932,6 +932,26 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "9f7c3e4beb33f85d45ae3e3a1792185706c8e16d043238c593331cc7cd313b50"
 
 [[package]]
+name = "oxideav-core"
+version = "0.1.40"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "64502aa4210ff04a5d574ca86f2c22e064a6c3bda812914b138c777e8ce6b023"
+dependencies = [
+ "bytemuck",
+ "serde_json",
+ "thiserror",
+]
+
+[[package]]
+name = "oxideav-h265"
+version = "0.0.15"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "1b3361cbebe79d6b5fbcc8c36dede89acf3ce8b5d1b28f673f43f98760d5dc46"
+dependencies = [
+ "oxideav-core",
+]
+
+[[package]]
 name = "parking_lot"
 version = "0.12.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1063,9 +1083,9 @@ checksum = "d6f6ff9a378485b298a5286656da665ba74413d36db0979633275d2e708145d4"
 
 [[package]]
 name = "rumpeg"
-version = "0.1.2"
+version = "0.1.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "8ae15ce2d50fdf0e0ca0a40345900c4013afa664357adfd69ddc8c6dd2b6dc68"
+checksum = "3bb9b77b1b7a93b547da7a691551cc21a03dd75fc73851626b0d4af09beea41e"
 dependencies = [
  "rumpeg-codec",
  "rumpeg-filter",
@@ -1078,12 +1098,13 @@ dependencies = [
 
 [[package]]
 name = "rumpeg-codec"
-version = "0.1.2"
+version = "0.1.4"
 dependencies = [
  "claxon",
  "flacenc",
  "image 0.25.10",
  "nvenc",
+ "oxideav-h265",
  "rayon",
  "rumpeg-h264",
  "rumpeg-scale",
@@ -1102,10 +1123,11 @@ dependencies = [
 
 [[package]]
 name = "rumpeg-filter"
-version = "0.1.2"
+version = "0.1.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "8af22dae82606763a9fac0acbba7d68416c31cb1c715b1c3cd1fb7548904316c"
+checksum = "5ea05a6deb26b9ba71f78ef1d38a8700c2e9caa59c9d1bcfb6643831a809eb3d"
 dependencies = [
+ "image 0.25.10",
  "rumpeg-resample",
  "rumpeg-scale",
  "rumpeg-util",
@@ -1113,7 +1135,7 @@ dependencies = [
 
 [[package]]
 name = "rumpeg-format"
-version = "0.1.2"
+version = "0.1.4"
 dependencies = [
  "byteorder",
  "matroska-demuxer",
@@ -1153,9 +1175,9 @@ dependencies = [
 
 [[package]]
 name = "rumpeg-util"
-version = "0.1.2"
+version = "0.1.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "486317bec5a65ae59550945f459d0298f5f1625d310987bce2de733646819e78"
+checksum = "108fae1043d162e7a94bf5f53beb48dba5429c011a389d12a6a73cd09545e466"
 dependencies = [
  "thiserror",
  "tracing",

@@ -13,7 +13,7 @@
 edition = "2021"
 rust-version = "1.85"
 name = "rumpeg-codec"
-version = "0.1.2"
+version = "0.1.4"
 authors = ["Rumpeg Contributors"]
 build = false
 autolib = false
@@ -68,6 +68,9 @@ default-features = false
 version = "0.1"
 optional = true
 
+[dependencies.oxideav-h265]
+version = "=0.0.15"
+
 [dependencies.rumpeg-h264]
 version = "0.1.2"
 
@@ -75,7 +78,7 @@ version = "0.1.2"
 version = "0.1.2"
 
 [dependencies.rumpeg-util]
-version = "0.1.2"
+version = "0.1.4"
 
 [dependencies.rusty-opus]
 version = "1.0"
